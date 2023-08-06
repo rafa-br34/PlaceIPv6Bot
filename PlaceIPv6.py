@@ -1,22 +1,21 @@
-import math
 import threading
 import requests
 import asyncio
 import icmplib
 import random
 import time
+import math
 import io
 from PIL import Image
 
-c_ConcurrentPings = 3000 # Concurrent pings
+c_ConcurrentPings = 5000 # Concurrent pings
 c_RootAddress = "2a01:4f8:c012:f8e6" # Canvas base address
 c_CanvasURL = "https://ssi.place/canvas.png" # Canvas base URL
 c_TargetImage = "image.png" # Target image
-c_ChunkSize = 10000 # The chunk size to feed icmplib.multiping with
+c_ChunkSize = c_ConcurrentPings * 2 # The amount of pings to feed icmplib.multiping per iteration
 c_MaxColorDifference = 4 # The maximum color difference(Used in every comparison). Recommended: 4, 8, 16
 c_Privileged = False # Use on Unix OSes for better speed. Ignored on Windows.
 c_DrawMode = "LAST" # In what order pixels will be drawn [SCATTER, FIRST, LAST]
-
 
 g_SharedData = {
     "Run": True,

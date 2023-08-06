@@ -1,0 +1,3 @@
+Pillow>=9.4.0
+requests>=2.21.0
+icmplib>=3.0.3
