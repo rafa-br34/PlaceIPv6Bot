@@ -1,21 +1,22 @@
 import threading
 import requests
-import asyncio
-import icmplib
+import socket
 import random
 import time
 import math
 import io
 from PIL import Image
 
-c_ConcurrentPings = 5000 # Concurrent pings
+from Networking import ICMPv6
+
+c_WaitTime = 0.001 # Time to yield for each iteration
+c_ChunkSize = 10 # The amount of pings to ping per iteration
 c_RootAddress = "2a01:4f8:c012:f8e6" # Canvas base address
 c_CanvasURL = "https://ssi.place/canvas.png" # Canvas base URL
 c_TargetImage = "image.png" # Target image
-c_ChunkSize = c_ConcurrentPings * 2 # The amount of pings to feed icmplib.multiping per iteration
 c_MaxColorDifference = 4 # The maximum color difference(Used in every comparison). Recommended: 4, 8, 16
-c_Privileged = False # Use on Unix OSes for better speed. Ignored on Windows.
-c_DrawMode = "LAST" # In what order pixels will be drawn [SCATTER, FIRST, LAST]
+c_Privileged = True # Use on Unix OSes for better speed. Ignored on Windows.
+c_DrawMode = "CLOSEST" # In what order pixels will be drawn [CLOSEST, SCATTER, FIRST, LAST]
 
 g_SharedData = {
     "Run": True,
@@ -23,43 +24,43 @@ g_SharedData = {
     "CanvasSize": [512, 512],
 }
 
+
 def CompareColor(A, B):
-    return math.sqrt((A[0] - B[0]) ** 2 + (A[1] - B[1]) ** 2 + (A[2] - B[2]) ** 2) < c_MaxColorDifference
-def MakeAddress(Size, X, Y, R, G, B):
+    return math.sqrt((A[0] - B[0]) ** 2 + (A[1] - B[1]) ** 2 + (A[2] - B[2]) ** 2)
+
+def MakeAddress(Size, X, Y, R, G, B, *_):
     return "{Address}:{S:01x}{XXX:03x}:{YYYY:04x}:{RR:02x}:{GG:02x}{BB:02x}".format(
         Address=c_RootAddress,
         S=Size,
         XXX=X, YYYY=Y,
         RR=round(R), GG=round(G), BB=round(B)
     )
+
 def ICMPWorkerLogic():
     global g_SharedData
 
+    SocketObject = socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
+    SocketObject.setblocking(False)
+    SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8 * 1024 * 1024) # Kinda overkill but eh
     while g_SharedData["Run"]:
-        Chunk = []
         WriteQueue = g_SharedData["WriteQueue"]
         for i in range(c_ChunkSize):
             if i >= len(WriteQueue):
                 break
+            CurrentTarget = None
             if c_DrawMode == "SCATTER":
-                Chunk.append(WriteQueue.pop(random.randint(0, len(WriteQueue) - 1)))
-            elif c_DrawMode == "LAST":
-                Chunk.append(WriteQueue.pop(len(WriteQueue) - 1))
+                CurrentTarget = WriteQueue.pop(random.randint(0, len(WriteQueue) - 1))
+            elif c_DrawMode == "LAST" or c_DrawMode == "CLOSEST":
+                CurrentTarget = WriteQueue.pop(len(WriteQueue) - 1)
             elif c_DrawMode == "FIRST":
-                Chunk.append(WriteQueue.pop(0))
+                CurrentTarget = WriteQueue.pop(0)
 
-        if len(Chunk) > 0:
-            icmplib.multiping(
-                list(map(lambda v: MakeAddress(*v), Chunk)),
-                count=1,
-                interval=1,
-                timeout=0.01,
-                concurrent_tasks=c_ConcurrentPings,
-                payload_size=0,
-                privileged=c_Privileged
-            )
-        else:
-            time.sleep(0.01)
+            SocketObject.sendto(ICMPv6.MakeEchoPacket(0, 0, b""), (MakeAddress(*CurrentTarget), 0))
+
+        time.sleep(c_WaitTime)
+
+    SocketObject.close()
+
 
 def main():
     global g_SharedData
@@ -73,8 +74,15 @@ def main():
     try:
         while g_SharedData["Run"]:
             IterationStart = time.time()
-            CanvasResult = requests.get(c_CanvasURL)
-            if CanvasResult.status_code != 200:
+
+            try:
+                CanvasResult = requests.get(c_CanvasURL)
+            finally:
+                pass
+
+            if not CanvasResult:
+                print("Failed To Acquire Canvas Image(Exception).")
+            elif CanvasResult.status_code != 200:
                 print(f"Failed To Acquire Canvas Image. Status Code {CanvasResult.status_code}")
                 time.sleep(3)
                 continue
@@ -94,21 +102,33 @@ def main():
                 for Y in range(CanvasSize[1]):
                     CPX = CPXS[X, Y]
                     TPX = TPXS[X, Y]
-                    if not CompareColor(TPX, CPX) and (not [X, Y] in DoneList):
+                    DIFF00 = CompareColor(TPX, CPX)
+                    if not (DIFF00 < c_MaxColorDifference) and (not [X, Y] in DoneList):
                         DoneList.append([X + 0, Y + 0])
-                        CF = (X + 1 < CanvasSize[0]) and (Y + 1 < CanvasSize[1])
-                        if CF and (CompareColor(TPX, TPXS[X + 0, Y + 1]) and CompareColor(TPX, TPXS[X + 1, Y + 0]) and CompareColor(TPX, TPXS[X + 1, Y + 1])):
-                            NewQueue.append([2, X, Y, TPX[0], TPX[1], TPX[2]])
+                        # Can Fit X/Y/All
+                        CFX = (X + 1 < CanvasSize[0])
+                        CFY = (Y + 1 < CanvasSize[1])
+                        CFA = CFX and CFY
+
+                        DIFF10 = (CFX and CompareColor(TPX, TPXS[X + 1, Y + 0])) or 0
+                        DIFF01 = (CFY and CompareColor(TPX, TPXS[X + 0, Y + 1])) or 0
+                        DIFF11 = (CFA and CompareColor(TPX, TPXS[X + 1, Y + 1])) or 0
+
+                        if CFA and ((DIFF01 + DIFF10 + DIFF11) < (c_MaxColorDifference * 3)):
+                            NewQueue.append([2, X, Y, TPX[0], TPX[1], TPX[2], (DIFF00 + DIFF01 + DIFF10 + DIFF11) / 4])
                             DoneList.append([X + 1, Y + 0])
                             DoneList.append([X + 0, Y + 1])
                             DoneList.append([X + 1, Y + 1])
                         else:
-                            NewQueue.append([1, X, Y, TPX[0], TPX[1], TPX[2]])
+                            NewQueue.append([1, X, Y, TPX[0], TPX[1], TPX[2], DIFF00])
                 if X % 2 == 0:
-                    DoneList = []
+                    DoneList.clear()
 
-            if c_DrawMode != "SCATTER":
+            if c_DrawMode == "CLOSEST":
+                NewQueue.sort(key=lambda v: v[6])
+            elif c_DrawMode != "SCATTER":
                 NewQueue.sort(key=lambda v: v[0])
+
             g_SharedData["WriteQueue"] = NewQueue
             print("Iteration Finished(Took {:.2f} Seconds), {} Canvas Operations Are Required         ".format(time.time() - IterationStart, len(g_SharedData["WriteQueue"])), end='\r')
             if len(g_SharedData["WriteQueue"]) == 0:

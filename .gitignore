@@ -2,3 +2,4 @@
 *.jpg
 venv/
 .idea/
+__pycache__/
