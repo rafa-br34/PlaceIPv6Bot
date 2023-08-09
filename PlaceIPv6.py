@@ -10,12 +10,11 @@ from PIL import Image
 from Networking import ICMPv6
 
 c_WaitTime = 0.001 # Time to yield for each iteration
-c_ChunkSize = 10 # The amount of pings to ping per iteration
+c_ChunkSize = 3 # The amount of pings to ping per iteration
 c_RootAddress = "2a01:4f8:c012:f8e6" # Canvas base address
 c_CanvasURL = "https://ssi.place/canvas.png" # Canvas base URL
 c_TargetImage = "image.png" # Target image
 c_MaxColorDifference = 4 # The maximum color difference(Used in every comparison). Recommended: 4, 8, 16
-c_Privileged = True # Use on Unix OSes for better speed. Ignored on Windows.
 c_DrawMode = "CLOSEST" # In what order pixels will be drawn [CLOSEST, SCATTER, FIRST, LAST]
 
 g_SharedData = {
