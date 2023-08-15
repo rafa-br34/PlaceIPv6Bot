@@ -6,7 +6,7 @@ from PIL import Image
 c_ImageAddress = "https://opengraph.githubassets.com/50829375aae1df9ce9fec1881829ab50997306cef04129bd38e65b2267576d63/rafa-br34/PlaceIPv6Bot"
 c_OutputName = "image.png"
 c_RunTime = "10m"
-c_RootPath = ""
+c_RootPath = "../../"
 
 def main():
 	ImageData = requests.get(c_ImageAddress)
@@ -21,8 +21,8 @@ def main():
 	NewSize = max(*TargetImage.size)
 	NewImage = Image.new("RGB", [NewSize, NewSize], color=0xFFFFFF)
 	NewImage.paste(TargetImage, [0, int((NewSize / 2) - (TargetImage.size[1] / 2))])
-	NewImage.save(f"{c_RootPath}/{c_OutputName}")
-	os.system(f"timeout -k {c_RunTime} {c_RunTime} python3 {c_RootPath}/Main.py")
+	NewImage.save(f"{c_RootPath}{c_OutputName}")
+	os.system(f"timeout -k {c_RunTime} {c_RunTime} python3 {c_RootPath}Main.py")
 
 
 
