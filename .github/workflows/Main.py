@@ -22,7 +22,7 @@ def main():
 	NewImage = Image.new("RGB", [NewSize, NewSize], color=0xFFFFFF)
 	NewImage.paste(TargetImage, [0, int((NewSize / 2) - (TargetImage.size[1] / 2))])
 	NewImage.save(f"{c_RootPath}{c_OutputName}")
-	os.system(f"sudo timeout -k {c_RunTime} {c_RunTime} python {c_RootPath}PlaceIPv6.py")
+	os.system(f"timeout -k {c_RunTime} {c_RunTime} python {c_RootPath}PlaceIPv6.py")
 
 
 
