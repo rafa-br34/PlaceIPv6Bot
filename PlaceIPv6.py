@@ -37,28 +37,32 @@ def MakeAddress(Size, X, Y, R, G, B, *_):
 
 def ICMPWorkerLogic():
     global g_SharedData
+    try:
+        SocketObject = socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
+        SocketObject.setblocking(False)
+        SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8 * 1024 * 1024) # Kinda overkill but eh
+        while g_SharedData["Run"]:
+            WriteQueue = g_SharedData["WriteQueue"]
+            for i in range(c_ChunkSize):
+                if i >= len(WriteQueue):
+                    break
+                CurrentTarget = None
+                if c_DrawMode == "SCATTER":
+                    CurrentTarget = WriteQueue.pop(random.randint(0, len(WriteQueue) - 1))
+                elif c_DrawMode == "LAST" or c_DrawMode == "CLOSEST":
+                    CurrentTarget = WriteQueue.pop(len(WriteQueue) - 1)
+                elif c_DrawMode == "FIRST":
+                    CurrentTarget = WriteQueue.pop(0)
 
-    SocketObject = socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
-    SocketObject.setblocking(False)
-    SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8 * 1024 * 1024) # Kinda overkill but eh
-    while g_SharedData["Run"]:
-        WriteQueue = g_SharedData["WriteQueue"]
-        for i in range(c_ChunkSize):
-            if i >= len(WriteQueue):
-                break
-            CurrentTarget = None
-            if c_DrawMode == "SCATTER":
-                CurrentTarget = WriteQueue.pop(random.randint(0, len(WriteQueue) - 1))
-            elif c_DrawMode == "LAST" or c_DrawMode == "CLOSEST":
-                CurrentTarget = WriteQueue.pop(len(WriteQueue) - 1)
-            elif c_DrawMode == "FIRST":
-                CurrentTarget = WriteQueue.pop(0)
+                SocketObject.sendto(ICMPv6.MakeEchoPacket(0, 0, b""), (MakeAddress(*CurrentTarget), 0))
 
-            SocketObject.sendto(ICMPv6.MakeEchoPacket(0, 0, b""), (MakeAddress(*CurrentTarget), 0))
+            time.sleep(c_WaitTime)
 
-        time.sleep(c_WaitTime)
-
-    SocketObject.close()
+        SocketObject.close()
+    except BaseException as Error:
+        print(Error)
+    finally:
+        g_SharedData["Run"] = False
 
 
 def main():
