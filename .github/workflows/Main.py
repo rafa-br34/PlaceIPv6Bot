@@ -6,7 +6,7 @@ from PIL import Image
 c_ImageAddress = "https://opengraph.githubassets.com/50829375aae1df9ce9fec1881829ab50997306cef04129bd38e65b2267576d63/rafa-br34/PlaceIPv6Bot"
 c_OutputName = "image.png"
 c_RunTime = "10m"
-c_RootPath = "../../"
+c_RootPath = ""
 
 def main():
 	ImageData = requests.get(c_ImageAddress)
