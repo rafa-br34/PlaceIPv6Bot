@@ -28,9 +28,8 @@ jobs:
 
     - name: Installing Dependencies
       run: |
-        sudo su
-        python -m pip install --upgrade pip
-        python -m pip install -r requirements.txt
+        sudo python -m pip install --upgrade pip
+        sudo python -m pip install -r requirements.txt
 
     - name: Pre-Configuring Git
       run: |
@@ -47,7 +46,7 @@ jobs:
     - name: Running Main Python Script
       continue-on-error: true
       run: |
-        python .github/workflows/Main.py
+        sudo python .github/workflows/Main.py
 
     - name: Cleaning PYCACHE
       continue-on-error: true
