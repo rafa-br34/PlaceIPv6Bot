@@ -2,6 +2,7 @@ import threading
 import requests
 import socket
 import random
+import select
 import time
 import math
 import io
@@ -10,12 +11,14 @@ from PIL import Image
 from Networking import ICMPv6
 
 c_WaitTime = 0.001 # Time to yield for each iteration
-c_ChunkSize = 3 # The amount of pings to ping per iteration
+c_ChunkSize = 20 # The amount of pings to ping per iteration
 c_RootAddress = "2a01:4f8:c012:f8e6" # Canvas base address
 c_CanvasURL = "https://ssi.place/canvas.png" # Canvas base URL
 c_TargetImage = "image.png" # Target image
 c_MaxColorDifference = 4 # The maximum color difference(Used in every comparison). Recommended: 4, 8, 16
 c_DrawMode = "CLOSEST" # In what order pixels will be drawn [CLOSEST, SCATTER, FIRST, LAST]
+c_BufferSize = 32 # Socket buffer size, in MB
+
 
 g_SharedData = {
     "Run": True,
@@ -40,9 +43,11 @@ def ICMPWorkerLogic():
     try:
         SocketObject = socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
         SocketObject.setblocking(False)
-        SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 8 * 1024 * 1024) # Kinda overkill but eh
+        SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, c_BufferSize * (1024 * 1024))
+        SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, 0)
         while g_SharedData["Run"]:
             WriteQueue = g_SharedData["WriteQueue"]
+            Packet = ICMPv6.MakeEchoPacket(random.randint(0x0000, 0xFFFF), random.randint(0x0000, 0xFFFF), b"")
             for i in range(c_ChunkSize):
                 if i >= len(WriteQueue):
                     break
@@ -53,10 +58,12 @@ def ICMPWorkerLogic():
                     CurrentTarget = WriteQueue.pop(len(WriteQueue) - 1)
                 elif c_DrawMode == "FIRST":
                     CurrentTarget = WriteQueue.pop(0)
-
-                SocketObject.sendto(ICMPv6.MakeEchoPacket(0, 0, b""), (MakeAddress(*CurrentTarget), 0))
+                
+                SocketObject.sendto(Packet, (MakeAddress(*CurrentTarget), 0))
 
             time.sleep(c_WaitTime)
+            if len(WriteQueue) <= 0:
+                print("*QUEUE EMPTY*", end='\r')
 
         SocketObject.close()
     except BaseException as Error:
@@ -98,8 +105,8 @@ def main():
                 TargetImage = OriginalTargetImage.resize((CanvasSize[0], CanvasSize[1]))
 
             NewQueue = []
-            CPXS = CanvasImage.load()
-            TPXS = TargetImage.load()
+            CPXS = CanvasImage.load() # Canvas Pixels
+            TPXS = TargetImage.load() # Target Pixels
             DoneList = []
             for X in range(CanvasSize[0]):
                 for Y in range(CanvasSize[1]):
