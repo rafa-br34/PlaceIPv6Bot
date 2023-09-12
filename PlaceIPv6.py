@@ -5,12 +5,13 @@ import random
 import select
 import time
 import math
+import os
 import io
 from PIL import Image
 
 from Networking import ICMPv6
 
-c_WaitTime = 0.001 # Time to yield for each iteration
+c_WaitTime = 0.01 # Time to yield for each iteration
 c_ChunkSize = 20 # The amount of pings to ping per iteration
 c_RootAddress = "2a01:4f8:c012:f8e6" # Canvas base address
 c_CanvasURL = "https://ssi.place/canvas.png" # Canvas base URL
@@ -26,6 +27,14 @@ g_SharedData = {
     "CanvasSize": [512, 512],
 }
 
+def LinePrint(*args, sep=' '):
+    ResultString = ""
+    for Argument in args:
+        ResultString += str(Argument) + sep
+    
+    PadLen = (os.get_terminal_size()[0] - len(ResultString)) - 1
+    Padding = (PadLen > 0 and ('' * PadLen)) or ''
+    print(ResultString, end=Padding + '\r')
 
 def CompareColor(A, B):
     return math.sqrt((A[0] - B[0]) ** 2 + (A[1] - B[1]) ** 2 + (A[2] - B[2]) ** 2)
@@ -63,7 +72,7 @@ def ICMPWorkerLogic():
 
             time.sleep(c_WaitTime)
             if len(WriteQueue) <= 0:
-                print("*QUEUE EMPTY*", end='\r')
+                LinePrint("*QUEUE EMPTY*")
 
         SocketObject.close()
     except BaseException as Error:
@@ -140,7 +149,7 @@ def main():
                 NewQueue.sort(key=lambda v: v[0])
 
             g_SharedData["WriteQueue"] = NewQueue
-            print("Iteration Finished(Took {:.2f} Seconds), {} Canvas Operations Are Required         ".format(time.time() - IterationStart, len(g_SharedData["WriteQueue"])), end='\r')
+            LinePrint("Iteration Finished(Took {:.2f} Seconds), {} Canvas Operations Are Required".format(time.time() - IterationStart, len(g_SharedData["WriteQueue"])))
             if len(g_SharedData["WriteQueue"]) == 0:
                 time.sleep(2)
     except BaseException as Error:
