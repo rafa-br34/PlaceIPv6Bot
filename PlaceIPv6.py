@@ -11,21 +11,23 @@ from PIL import Image
 
 from Networking import ICMPv6
 
-c_WaitTime = 0.001 # Time to yield for each iteration
-c_ChunkSize = 20 # The amount of pings to ping per iteration
+c_WaitTime = 0 # Time to yield for each iteration
+c_ChunkSize = 50 # The amount of pings to ping per iteration
 c_RootAddress = "2a01:4f8:c012:f8e6" # Canvas base address
 c_CanvasURL = "https://ssi.place/canvas.png" # Canvas base URL
-c_TargetImage = "-image.png" # Target image
+c_TargetImage = "image.png" # Target image
 c_MaxColorDifference = 4 # The maximum color difference(Used in every comparison). Recommended: 4, 8, 16
 c_DrawMode = "CLOSEST" # In what order pixels will be drawn [CLOSEST, SCATTER, FIRST, LAST]
 c_BufferSize = 16 # Socket buffer size(in MB)
-c_SocketCount = 8 # (Dirty way of improving performance)
-
+c_SocketCount = 8 # Amount of ICMPv6 sockets to use
+c_SocketMode = "DISPERSE" # Mode to use said ICMPv6 sockets [FOCUS, DISPERSE]
+c_ThreadCount = 1 # Amount of worker threads
 
 g_SharedData = {
     "Run": True,
     "WriteQueue": [],
     "CanvasSize": [512, 512],
+    "ThreadList": []
 }
 
 def LinePrint(*args, sep=' '):
@@ -59,9 +61,11 @@ def ICMPWorkerLogic():
             SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, 0)
             Sockets.append(SocketObject)
 
+        SocketIndex = 0
         while g_SharedData["Run"]:
             WriteQueue = g_SharedData["WriteQueue"]
             Packet = ICMPv6.MakeEchoPacket(random.randint(0x0000, 0xFFFF), random.randint(0x0000, 0xFFFF), b"")
+            
             for i in range(c_ChunkSize):
                 if i >= len(WriteQueue):
                     break
@@ -74,17 +78,30 @@ def ICMPWorkerLogic():
                     CurrentTarget = WriteQueue.pop(0)
                 
                 Address = (MakeAddress(*CurrentTarget), random.randint(0x0000, 0xFFFF))
-                for SocketObject in Sockets:
-                    SocketObject.sendto(Packet, Address)
+                if c_SocketMode == "FOCUS":
+                    for SocketObject in Sockets:
+                        SocketObject.sendto(Packet, Address)
+                elif c_SocketMode == "DISPERSE":
+                    if SocketIndex >= len(Sockets):
+                        SocketIndex = 0
+
+                    Sockets[SocketIndex].sendto(Packet, Address)
+
+                SocketIndex += 1
             
-            time.sleep(c_WaitTime)
+            if c_WaitTime > 0:
+                time.sleep(c_WaitTime)
 
             if len(WriteQueue) <= 0:
                 LinePrint("*QUEUE EMPTY*")
+                while len(WriteQueue) <= 0 and g_SharedData["Run"]:
+                    time.sleep(c_WaitTime)
+                    WriteQueue = g_SharedData["WriteQueue"]
         
         for SocketObject in Sockets:
             SocketObject.close()
     except BaseException as Error:
+        print("ICMPWorkerThread Exception:")
         print(Error)
     finally:
         g_SharedData["Run"] = False
@@ -93,27 +110,37 @@ def ICMPWorkerLogic():
 def main():
     global g_SharedData
     CanvasSize = g_SharedData["CanvasSize"]
+    ThreadList = g_SharedData["ThreadList"]
 
-    ICMPWorkerThread = threading.Thread(target=ICMPWorkerLogic)
-    ICMPWorkerThread.start()
+    for _ in range(c_ThreadCount):
+        ICMPWorkerThread = threading.Thread(target=ICMPWorkerLogic)
+        ICMPWorkerThread.start()
+        ThreadList.append(ICMPWorkerThread)
 
     OriginalTargetImage = Image.open(c_TargetImage)
     TargetImage = OriginalTargetImage.resize((CanvasSize[0], CanvasSize[1]))
     try:
         while g_SharedData["Run"]:
-            IterationStart = time.time()
+            TimeReference = time.time()
 
             try:
                 CanvasResult = requests.get(c_CanvasURL)
+            except KeyboardInterrupt as KBD:
+                raise KBD # Pass To Main Loop
+            except (BaseException, ConnectionError, ConnectionResetError) as Error:
+                print("Failed To Acquire Canvas Image, Exception:", Error)
+                continue
+            except:
+                print("Failed To Acquire Canvas Image, Unknown Exception")
+                continue
             finally:
                 pass
-
-            if not CanvasResult:
-                print("Failed To Acquire Canvas Image(Exception).")
-            elif CanvasResult.status_code != 200:
+                
+            if CanvasResult.status_code != 200:
                 print(f"Failed To Acquire Canvas Image. Status Code {CanvasResult.status_code}")
                 time.sleep(3)
                 continue
+
             CanvasImage = Image.open(io.BytesIO(CanvasResult.content))
 
             # Compare Canvas Image With Target Image
@@ -126,6 +153,7 @@ def main():
             CPXS = CanvasImage.load() # Canvas Pixels
             TPXS = TargetImage.load() # Target Pixels
             DoneList = []
+
             for X in range(CanvasSize[0]):
                 for Y in range(CanvasSize[1]):
                     CPX = CPXS[X, Y]
@@ -158,15 +186,19 @@ def main():
                 NewQueue.sort(key=lambda v: v[0])
 
             g_SharedData["WriteQueue"] = NewQueue
-            LinePrint("Iteration Finished(Took {:.2f} Seconds), {} Canvas Operations Are Required".format(time.time() - IterationStart, len(g_SharedData["WriteQueue"])))
+            LinePrint("Processed Image In {:.2f} Seconds Elapsed, {} Draw Operations".format(time.time() - TimeReference, len(g_SharedData["WriteQueue"])))
             if len(g_SharedData["WriteQueue"]) == 0:
                 time.sleep(2)
+    except KeyboardInterrupt:
+        print("KeyboardInterrupt, Stopping...")
     except BaseException as Error:
+        print("Main Thread Exception:")
         print(Error)
 
     print("Stopping Worker Thread...")
     g_SharedData["Run"] = False
-    ICMPWorkerThread.join()
+    while len(ThreadList):
+        ThreadList.pop().join()
 
 
 
