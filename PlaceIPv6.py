@@ -11,14 +11,15 @@ from PIL import Image
 
 from Networking import ICMPv6
 
-c_WaitTime = 0.01 # Time to yield for each iteration
+c_WaitTime = 0.001 # Time to yield for each iteration
 c_ChunkSize = 20 # The amount of pings to ping per iteration
 c_RootAddress = "2a01:4f8:c012:f8e6" # Canvas base address
 c_CanvasURL = "https://ssi.place/canvas.png" # Canvas base URL
-c_TargetImage = "image.png" # Target image
+c_TargetImage = "-image.png" # Target image
 c_MaxColorDifference = 4 # The maximum color difference(Used in every comparison). Recommended: 4, 8, 16
 c_DrawMode = "CLOSEST" # In what order pixels will be drawn [CLOSEST, SCATTER, FIRST, LAST]
-c_BufferSize = 32 # Socket buffer size, in MB
+c_BufferSize = 16 # Socket buffer size(in MB)
+c_SocketCount = 8 # (Dirty way of improving performance)
 
 
 g_SharedData = {
@@ -33,7 +34,7 @@ def LinePrint(*args, sep=' '):
         ResultString += str(Argument) + sep
     
     PadLen = (os.get_terminal_size()[0] - len(ResultString)) - 1
-    Padding = (PadLen > 0 and ('' * PadLen)) or ''
+    Padding = (PadLen > 0 and (' ' * PadLen)) or ''
     print(ResultString, end=Padding + '\r')
 
 def CompareColor(A, B):
@@ -50,10 +51,14 @@ def MakeAddress(Size, X, Y, R, G, B, *_):
 def ICMPWorkerLogic():
     global g_SharedData
     try:
-        SocketObject = socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
-        SocketObject.setblocking(False)
-        SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, c_BufferSize * (1024 * 1024))
-        SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, 0)
+        Sockets = []
+        for _ in range(c_SocketCount):
+            SocketObject = socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
+            SocketObject.setblocking(False)
+            SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, c_BufferSize * (1024 * 1024))
+            SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, 0)
+            Sockets.append(SocketObject)
+
         while g_SharedData["Run"]:
             WriteQueue = g_SharedData["WriteQueue"]
             Packet = ICMPv6.MakeEchoPacket(random.randint(0x0000, 0xFFFF), random.randint(0x0000, 0xFFFF), b"")
@@ -68,13 +73,17 @@ def ICMPWorkerLogic():
                 elif c_DrawMode == "FIRST":
                     CurrentTarget = WriteQueue.pop(0)
                 
-                SocketObject.sendto(Packet, (MakeAddress(*CurrentTarget), 0))
-
+                Address = (MakeAddress(*CurrentTarget), random.randint(0x0000, 0xFFFF))
+                for SocketObject in Sockets:
+                    SocketObject.sendto(Packet, Address)
+            
             time.sleep(c_WaitTime)
+
             if len(WriteQueue) <= 0:
                 LinePrint("*QUEUE EMPTY*")
-
-        SocketObject.close()
+        
+        for SocketObject in Sockets:
+            SocketObject.close()
     except BaseException as Error:
         print(Error)
     finally:
