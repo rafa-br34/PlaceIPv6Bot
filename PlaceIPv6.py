@@ -3,6 +3,7 @@ import requests
 import socket
 import random
 import select
+import numba
 import time
 import math
 import os
@@ -44,10 +45,11 @@ g_ProfilerStack = []
 
 def PROFILER_START():
     g_ProfilerStack.append(time.time())
+
 def PROFILER_END():
     return time.time() - g_ProfilerStack.pop()
 
-
+@numba.jit(nopython=True)
 def CompareColor(A, B):
     return math.sqrt((A[0] - B[0]) ** 2 + (A[1] - B[1]) ** 2 + (A[2] - B[2]) ** 2)
 
@@ -58,6 +60,10 @@ def MakeAddress(Size, X, Y, R, G, B, *_):
         XXX=X, YYYY=Y,
         RR=round(R), GG=round(G), BB=round(B)
     )
+
+@numba.jit(numba.uint32(numba.uint32, numba.uint32), nopython=True)
+def FLAG(X, Y):
+    return ((Y & 0xFFFF) << 16) | ((X & 0xFFFF) << 0)
 
 def ICMPWorkerLogic():
     global g_SharedData
@@ -162,15 +168,11 @@ def main():
                 TargetImage = OriginalTargetImage.resize((CanvasSize[0], CanvasSize[1]))
                 print(f"Resized Image In {round(PROFILER_END() * 1000)}ms")
 
-            
             PROFILER_START()
             NewQueue = []
             CPXS = CanvasImage.load() # Canvas Pixels
             TPXS = TargetImage.load() # Target Pixels
             DoneList = []
-
-            def FLAG(X, Y):
-                return ((Y & 0xFFFFFF) << 24) | ((X & 0xFFFFFF) << 0)
 
             for X in range(CanvasSize[0]):
                 for Y in range(CanvasSize[1]):
