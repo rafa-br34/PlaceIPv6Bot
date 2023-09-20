@@ -16,12 +16,13 @@ c_ChunkSize = 50 # The amount of pings to ping per iteration
 c_RootAddress = "2a01:4f8:c012:f8e6" # Canvas base address
 c_CanvasURL = "https://ssi.place/canvas.png" # Canvas base URL
 c_TargetImage = "image.png" # Target image
-c_MaxColorDifference = 4 # The maximum color difference(Used in every comparison). Recommended: 4, 8, 16
+c_MaxColorDifference = 4 # The maximum color difference(Used in every comparison). Recommended: 4, 8, or 16
 c_DrawMode = "CLOSEST" # In what order pixels will be drawn [CLOSEST, SCATTER, FIRST, LAST]
 c_BufferSize = 16 # Socket buffer size(in MB)
 c_SocketCount = 8 # Amount of ICMPv6 sockets to use
-c_SocketMode = "DISPERSE" # Mode to use said ICMPv6 sockets [FOCUS, DISPERSE]
-c_ThreadCount = 1 # Amount of worker threads
+c_SocketMode = "DISPERSE" # How to use the ICMPv6 sockets [FOCUS, DISPERSE]
+c_ThreadCount = 1 # Amount of worker threads. Recommended: 1
+c_ImageCheckWaitTime = 2 # The amount of time to wait before checking the image again if there are no more operations
 
 g_SharedData = {
     "Run": True,
@@ -30,14 +31,22 @@ g_SharedData = {
     "ThreadList": []
 }
 
-def LinePrint(*args, sep=' '):
+def LinePrint(*args, sep=' ', end=''):
     ResultString = ""
     for Argument in args:
         ResultString += str(Argument) + sep
     
     PadLen = (os.get_terminal_size()[0] - len(ResultString)) - 1
     Padding = (PadLen > 0 and (' ' * PadLen)) or ''
-    print(ResultString, end=Padding + '\r')
+    print(ResultString, end=Padding + '\r' + end)
+
+g_ProfilerStack = []
+
+def PROFILER_START():
+    g_ProfilerStack.append(time.time())
+def PROFILER_END():
+    return time.time() - g_ProfilerStack.pop()
+
 
 def CompareColor(A, B):
     return math.sqrt((A[0] - B[0]) ** 2 + (A[1] - B[1]) ** 2 + (A[2] - B[2]) ** 2)
@@ -106,7 +115,6 @@ def ICMPWorkerLogic():
     finally:
         g_SharedData["Run"] = False
 
-
 def main():
     global g_SharedData
     CanvasSize = g_SharedData["CanvasSize"]
@@ -117,12 +125,14 @@ def main():
         ICMPWorkerThread.start()
         ThreadList.append(ICMPWorkerThread)
 
+    PROFILER_START()
     OriginalTargetImage = Image.open(c_TargetImage)
     TargetImage = OriginalTargetImage.resize((CanvasSize[0], CanvasSize[1]))
+    LinePrint(f"Loaded & Resized Image In {round(PROFILER_END() * 1000)}ms", end='\n')
+
     try:
         while g_SharedData["Run"]:
-            TimeReference = time.time()
-
+            PROFILER_START()
             try:
                 CanvasResult = requests.get(c_CanvasURL)
             except KeyboardInterrupt as KBD:
@@ -142,25 +152,33 @@ def main():
                 continue
 
             CanvasImage = Image.open(io.BytesIO(CanvasResult.content))
+            TimeImageAcquire = PROFILER_END()
 
             # Compare Canvas Image With Target Image
             if CanvasImage.size != TargetImage.size:
                 print(f"Canvas/Target Size Mismatch, Canvas: {CanvasImage.size} Target: {TargetImage.size}. Resizing...")
+                PROFILER_START()
                 CanvasSize = CanvasImage.size
                 TargetImage = OriginalTargetImage.resize((CanvasSize[0], CanvasSize[1]))
+                print(f"Resized Image In {round(PROFILER_END() * 1000)}ms")
 
+            
+            PROFILER_START()
             NewQueue = []
             CPXS = CanvasImage.load() # Canvas Pixels
             TPXS = TargetImage.load() # Target Pixels
             DoneList = []
+
+            def FLAG(X, Y):
+                return ((Y & 0xFFFFFF) << 24) | ((X & 0xFFFFFF) << 0)
 
             for X in range(CanvasSize[0]):
                 for Y in range(CanvasSize[1]):
                     CPX = CPXS[X, Y]
                     TPX = TPXS[X, Y]
                     DIFF00 = CompareColor(TPX, CPX)
-                    if not (DIFF00 < c_MaxColorDifference) and (not [X, Y] in DoneList):
-                        DoneList.append([X + 0, Y + 0])
+                    if not (DIFF00 < c_MaxColorDifference) and (not FLAG(X, Y) in DoneList):
+                        DoneList.append(FLAG(X + 0, Y + 0))
                         # Can Fit X/Y/All
                         CFX = (X + 1 < CanvasSize[0])
                         CFY = (Y + 1 < CanvasSize[1])
@@ -172,9 +190,7 @@ def main():
 
                         if CFA and ((DIFF01 + DIFF10 + DIFF11) < (c_MaxColorDifference * 3)):
                             NewQueue.append([2, X, Y, TPX[0], TPX[1], TPX[2], (DIFF00 + DIFF01 + DIFF10 + DIFF11) / 4])
-                            DoneList.append([X + 1, Y + 0])
-                            DoneList.append([X + 0, Y + 1])
-                            DoneList.append([X + 1, Y + 1])
+                            DoneList += [FLAG(X + 1, Y + 0), FLAG(X + 0, Y + 1), FLAG(X + 1, Y + 1)]
                         else:
                             NewQueue.append([1, X, Y, TPX[0], TPX[1], TPX[2], DIFF00])
                 if X % 2 == 0:
@@ -186,16 +202,18 @@ def main():
                 NewQueue.sort(key=lambda v: v[0])
 
             g_SharedData["WriteQueue"] = NewQueue
-            LinePrint("Processed Image In {:.2f} Seconds Elapsed, {} Draw Operations".format(time.time() - TimeReference, len(g_SharedData["WriteQueue"])))
+            TimeImageProcess = PROFILER_END()
+            LinePrint("Image(Acquired In {:.2f}s, Processed In {:.2f}s, {:.2f} Total), {} Draw Operations".format(TimeImageAcquire, TimeImageProcess, TimeImageAcquire + TimeImageProcess, len(g_SharedData["WriteQueue"])))
+
             if len(g_SharedData["WriteQueue"]) == 0:
-                time.sleep(2)
+                time.sleep(c_ImageCheckWaitTime)
     except KeyboardInterrupt:
-        print("KeyboardInterrupt, Stopping...")
+        LinePrint("\nKeyboardInterrupt, Stopping...")
     except BaseException as Error:
-        print("Main Thread Exception:")
+        LinePrint("\nMain Thread Exception:", end='\n')
         print(Error)
 
-    print("Stopping Worker Thread...")
+    LinePrint("\nStopping Workers...")
     g_SharedData["Run"] = False
     while len(ThreadList):
         ThreadList.pop().join()
