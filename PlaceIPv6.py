@@ -73,7 +73,7 @@ def ICMPWorkerLogic():
             SocketObject = socket.socket(socket.AF_INET6, socket.SOCK_RAW, socket.IPPROTO_ICMPV6)
             SocketObject.setblocking(False)
             SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, c_BufferSize * (1024 * 1024))
-            SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, 0)
+            # SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, 0) # No Need For It
             Sockets.append(SocketObject)
 
         SocketIndex = 0
