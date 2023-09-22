@@ -24,8 +24,7 @@ c_DrawMode = "CLOSEST" # In what order pixels will be drawn [CLOSEST, SCATTER, F
 c_SocketCount = 1 # Amount of ICMPv6 sockets to use
 c_SocketMode = "DISPERSE" # How to use the ICMPv6 sockets [FOCUS, DISPERSE]
 c_ThreadCount = 1 # Amount of worker threads. Recommended: 1
-c_TargetPPS = 30000# Target Pixels Per Second Amount
-
+c_TargetPPS = 30000 # Target Pixels Per Second Amount (IGNORED ON WINDOWS FOR PERFORMANCE REASONS)
 
 
 g_SharedData = {
@@ -111,7 +110,8 @@ def ICMPWorkerLogic():
                     Sockets[SocketIndex].sendto(Packet, Address)
                     SocketIndex += 1
 
-                BusySleepNanoSeconds(Delay)
+                if os.name != "nt":
+                    BusySleepNanoSeconds(Delay)
             else:
                 LinePrint("*QUEUE EMPTY*")
                 while len(WriteQueue) <= 0 and g_SharedData["Run"]:
