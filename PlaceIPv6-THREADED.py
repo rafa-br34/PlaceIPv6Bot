@@ -5,6 +5,7 @@ import random
 import numba
 import time
 import math
+import sys
 import os
 import io
 from PIL import Image
@@ -20,11 +21,11 @@ c_BufferSize = 512 # Socket buffer size(in MB)
 
 
 c_DrawMode = "CLOSEST" # In what order pixels will be drawn [CLOSEST, SCATTER, FIRST, LAST]
-c_SocketCount = 4 # Amount of ICMPv6 sockets to use
+c_SocketCount = 1 # Amount of ICMPv6 sockets to use
 c_SocketMode = "DISPERSE" # How to use the ICMPv6 sockets [FOCUS, DISPERSE]
 c_ThreadCount = 1 # Amount of worker threads. Recommended: 1
-c_WaitTime = 0.001 # Time to yield for each iteration
-c_ChunkSize = 100 # The amount of pings to ping per iteration
+c_TargetPPS = 30000# Target Pixels Per Second Amount
+
 
 
 g_SharedData = {
@@ -55,6 +56,16 @@ def PROFILER_END():
 def CompareColor(A, B):
     return math.sqrt((A[0] - B[0]) ** 2 + (A[1] - B[1]) ** 2 + (A[2] - B[2]) ** 2)
 
+@numba.jit(numba.uint32(numba.uint32, numba.uint32), nopython=True)
+def FLAG(X, Y):
+    return ((Y & 0xFFFF) << 16) | ((X & 0xFFFF) << 0)
+
+def BusySleepNanoSeconds(Time):
+    Start = time.time_ns()
+    CurrentTime = 0
+    while CurrentTime < Time:
+        CurrentTime = time.time_ns() - Start
+
 def MakeAddress(Size, X, Y, R, G, B, *_):
     return "{Address}:{S:01x}{XXX:03x}:{YYYY:04x}:{RR:02x}:{GG:02x}{BB:02x}".format(
         Address=c_RootAddress,
@@ -62,10 +73,6 @@ def MakeAddress(Size, X, Y, R, G, B, *_):
         XXX=X, YYYY=Y,
         RR=round(R), GG=round(G), BB=round(B)
     )
-
-@numba.jit(numba.uint32(numba.uint32, numba.uint32), nopython=True)
-def FLAG(X, Y):
-    return ((Y & 0xFFFF) << 16) | ((X & 0xFFFF) << 0)
 
 def ICMPWorkerLogic():
     global g_SharedData
@@ -78,14 +85,13 @@ def ICMPWorkerLogic():
             # SocketObject.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, 0) # No Need For It
             Sockets.append(SocketObject)
 
+        Delay = 1000000000 / (c_TargetPPS / c_ThreadCount)
         SocketIndex = 0
         while g_SharedData["Run"]:
             WriteQueue = g_SharedData["WriteQueue"]
             Packet = ICMPv6.MakeEchoPacket(random.randint(0x0000, 0xFFFF), random.randint(0x0000, 0xFFFF), b"")
             
-            for i in range(c_ChunkSize):
-                if i >= len(WriteQueue):
-                    break
+            if len(WriteQueue) > 0:
                 CurrentTarget = None
                 if c_DrawMode == "SCATTER":
                     CurrentTarget = WriteQueue.pop(random.randint(0, len(WriteQueue) - 1))
@@ -94,7 +100,7 @@ def ICMPWorkerLogic():
                 elif c_DrawMode == "FIRST":
                     CurrentTarget = WriteQueue.pop(0)
                 
-                Address = (MakeAddress(*CurrentTarget), 0) #random.randint(0x0000, 0xFFFF)
+                Address = (MakeAddress(*CurrentTarget), 0)
                 if c_SocketMode == "FOCUS":
                     for SocketObject in Sockets:
                         SocketObject.sendto(Packet, Address)
@@ -103,16 +109,13 @@ def ICMPWorkerLogic():
                         SocketIndex = 0
 
                     Sockets[SocketIndex].sendto(Packet, Address)
+                    SocketIndex += 1
 
-                SocketIndex += 1
-            
-            if c_WaitTime > 0:
-                time.sleep(c_WaitTime)
-
-            if len(WriteQueue) <= 0:
+                BusySleepNanoSeconds(Delay)
+            else:
                 LinePrint("*QUEUE EMPTY*")
                 while len(WriteQueue) <= 0 and g_SharedData["Run"]:
-                    time.sleep(c_WaitTime)
+                    time.sleep(0.001)
                     WriteQueue = g_SharedData["WriteQueue"]
         
         for SocketObject in Sockets:
