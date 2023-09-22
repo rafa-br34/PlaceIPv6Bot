@@ -24,7 +24,7 @@ c_DrawMode = "CLOSEST" # In what order pixels will be drawn [CLOSEST, SCATTER, F
 c_SocketCount = 1 # Amount of ICMPv6 sockets to use
 c_SocketMode = "DISPERSE" # How to use the ICMPv6 sockets [FOCUS, DISPERSE]
 c_ThreadCount = 1 # Amount of worker threads. Recommended: 1
-c_TargetPPS = 30000 # Target Pixels Per Second Amount (IGNORED ON WINDOWS FOR PERFORMANCE REASONS)
+c_TargetPPS = 30000 # Target Pixels Per Second Amount (-1 For Unlimited), Use -1 On Windows
 
 
 g_SharedData = {
@@ -59,11 +59,19 @@ def CompareColor(A, B):
 def FLAG(X, Y):
     return ((Y & 0xFFFF) << 16) | ((X & 0xFFFF) << 0)
 
-def BusySleepNanoSeconds(Time):
-    Start = time.time_ns()
-    CurrentTime = 0
-    while CurrentTime < Time:
-        CurrentTime = time.time_ns() - Start
+if os.name == "nt": # Use perf_counter on Windows
+    def BusySleepNanoSeconds(Time):
+        Time = Time / 1000000000
+        Start = time.perf_counter()
+        CurrentTime = 0
+        while CurrentTime < Time:
+            CurrentTime = time.perf_counter() - Start
+else: # Use time_ns on any other OS(Is this really needed?)
+    def BusySleepNanoSeconds(Time):
+        Start = time.time_ns()
+        CurrentTime = 0
+        while CurrentTime < Time:
+            CurrentTime = time.time_ns() - Start
 
 def MakeAddress(Size, X, Y, R, G, B, *_):
     return "{Address}:{S:01x}{XXX:03x}:{YYYY:04x}:{RR:02x}:{GG:02x}{BB:02x}".format(
@@ -109,8 +117,8 @@ def ICMPWorkerLogic():
 
                     Sockets[SocketIndex].sendto(Packet, Address)
                     SocketIndex += 1
-
-                if os.name != "nt":
+                
+                if c_TargetPPS > 0:
                     BusySleepNanoSeconds(Delay)
             else:
                 LinePrint("*QUEUE EMPTY*")
