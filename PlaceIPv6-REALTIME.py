@@ -107,7 +107,7 @@ def main():
             PROFILER_START()
             CPXS = CanvasImage.load() # Canvas Pixels
             TPXS = TargetImage.load() # Target Pixels
-            DoneList = []
+            DoneList = set()
             Sends = 0
             for X in range(CanvasSize[0]):
                 Packet = ICMPv6.MakeEchoPacket(random.randint(0x0000, 0xFFFF), random.randint(0x0000, 0xFFFF), b"")
@@ -116,7 +116,7 @@ def main():
                     TPX = TPXS[X, Y]
                     DIFF00 = CompareColor(TPX, CPX)
                     if not (DIFF00 < c_MaxColorDifference) and (not FLAG(X, Y) in DoneList):
-                        DoneList.append(FLAG(X + 0, Y + 0))
+                        DoneList.add(FLAG(X + 0, Y + 0))
                         # Can Fit X/Y/All
                         CFX = (X + 1 < CanvasSize[0])
                         CFY = (Y + 1 < CanvasSize[1])
@@ -128,7 +128,9 @@ def main():
 
                         if CFA and ((DIFF01 + DIFF10 + DIFF11) < (c_MaxColorDifference * 3)):
                             Address = (MakeAddress(2, X, Y, TPX[0], TPX[1], TPX[2]), 0)
-                            DoneList += [FLAG(X + 1, Y + 0), FLAG(X + 0, Y + 1), FLAG(X + 1, Y + 1)]
+                            DoneList.add(FLAG(X + 1, Y + 0))
+                            DoneList.add(FLAG(X + 0, Y + 1))
+                            DoneList.add(FLAG(X + 1, Y + 1))
                         else:
                             Address = (MakeAddress(1, X, Y, TPX[0], TPX[1], TPX[2]), 0)
                         

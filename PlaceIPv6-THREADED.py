@@ -185,7 +185,7 @@ def main():
             NewQueue = []
             CPXS = CanvasImage.load() # Canvas Pixels
             TPXS = TargetImage.load() # Target Pixels
-            DoneList = []
+            DoneList = set()
 
             for X in range(CanvasSize[0]):
                 for Y in range(CanvasSize[1]):
@@ -193,7 +193,7 @@ def main():
                     TPX = TPXS[X, Y]
                     DIFF00 = CompareColor(TPX, CPX)
                     if not (DIFF00 < c_MaxColorDifference) and (not FLAG(X, Y) in DoneList):
-                        DoneList.append(FLAG(X + 0, Y + 0))
+                        DoneList.add(FLAG(X + 0, Y + 0))
                         # Can Fit X/Y/All
                         CFX = (X + 1 < CanvasSize[0])
                         CFY = (Y + 1 < CanvasSize[1])
@@ -205,7 +205,9 @@ def main():
 
                         if CFA and ((DIFF01 + DIFF10 + DIFF11) < (c_MaxColorDifference * 3)):
                             NewQueue.append([2, X, Y, TPX[0], TPX[1], TPX[2], (DIFF00 + DIFF01 + DIFF10 + DIFF11) / 4])
-                            DoneList += [FLAG(X + 1, Y + 0), FLAG(X + 0, Y + 1), FLAG(X + 1, Y + 1)]
+                            DoneList.add(FLAG(X + 1, Y + 0))
+                            DoneList.add(FLAG(X + 0, Y + 1))
+                            DoneList.add(FLAG(X + 1, Y + 1))
                         else:
                             NewQueue.append([1, X, Y, TPX[0], TPX[1], TPX[2], DIFF00])
                 if X % 2 == 0:
